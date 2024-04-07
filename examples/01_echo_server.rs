@@ -1,7 +1,8 @@
+use std::sync::mpsc::Sender;
 use maelstrom_rs::actor::Actor;
 use maelstrom_rs::error::Error;
 use maelstrom_rs::message::{Request, Response};
-use maelstrom_rs::runtime::Runtime;
+use maelstrom_rs::runtime::{Event, Runtime};
 use serde_json::{Map, Value};
 
 // https://github.com/jepsen-io/maelstrom/blob/main/doc/02-echo/index.md
@@ -31,6 +32,12 @@ impl Actor for EchoActor {
             ),
         }
     }
+
+    fn gossip(&mut self) -> Result<Vec<Response>, Error> {
+        Ok(vec![])
+    }
+
+    fn inject_sender(&mut self, sender: Sender<Event>) {}
 }
 
 impl EchoActor {

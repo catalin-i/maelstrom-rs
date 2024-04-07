@@ -17,10 +17,11 @@ The crate exposes:
 ## Examples
 
  ```rust
+ use std::sync::mpsc::Sender;
  use maelstrom_rs::actor::Actor;
  use maelstrom_rs::message::{Request, Response};
  use maelstrom_rs::error::Error;
- use maelstrom_rs::runtime::Runtime;
+ use maelstrom_rs::runtime::{Event, Runtime};
 
  fn main() {
     let node = EchoActor { node_id: None };
@@ -44,6 +45,14 @@ The crate exposes:
             "echo" => unimplemented!(),
             _ => unimplemented!(),
          }
+    }
+
+    fn gossip(&mut self) -> Result<Vec<Response>, Error> {
+        Ok(vec![])
+    }
+
+    fn inject_sender(&mut self, tx: Sender<Event>) {
+
     }
  }
  ```

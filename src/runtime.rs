@@ -4,10 +4,18 @@ use crate::message::{Request, Response};
 use serde::de::Error;
 use serde_json::{Map, Value};
 use std::io::stdin;
+use std::sync::mpsc;
+use std::thread;
+use std::thread::JoinHandle;
 
 /// A Runtime to run an Actor
 pub struct Runtime {
     node: Box<dyn Actor>,
+}
+
+pub enum Event {
+    Request(Request),
+    Trigger,
 }
 
 impl Runtime {
@@ -17,53 +25,80 @@ impl Runtime {
     }
 
     /// Start the runtime.
-    pub fn start(&mut self) {
-        let mut buffer = String::new();
-        loop {
-            stdin()
-                .read_line(&mut buffer)
-                .expect("could not read stdin");
+    pub fn start(&mut self) -> JoinHandle<Event> {
+        let (tx, rx) = mpsc::channel();
+        self.node.inject_sender(tx.clone());
+        let reader = thread::spawn(move || {
+            let mut buffer = String::new();
+            loop {
+                stdin()
+                    .read_line(&mut buffer)
+                    .expect("could not read stdin");
 
-            let mut valid_json: Map<String, Value> = match serde_json::from_slice(buffer.as_bytes())
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("could not deserialize stdin as json: {}", e);
-                    eprintln!("stdin's content is {}", buffer);
-                    continue;
-                }
-            };
+                let mut valid_json: Map<String, Value> =
+                    match serde_json::from_slice(buffer.as_bytes()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("could not deserialize stdin as json: {}", e);
+                            eprintln!("stdin's content is {}", buffer);
+                            continue;
+                        }
+                    };
 
-            let request = match Request::try_from_json(&mut valid_json) {
-                Ok(m) => m,
-                Err(error) => {
-                    eprintln!("could not deserialize stdin as a Maelstrom json: {}", error);
-                    continue;
-                }
-            };
-            eprintln!("received {:?}", &request);
-
-            if request.message_type.as_str().eq("init") {
-                match self.handle_init(&request) {
-                    Ok(_) => {}
+                let request = match Request::try_from_json(&mut valid_json) {
+                    Ok(m) => m,
                     Err(error) => {
-                        eprintln!(
-                            "could not deserialize stdin as a Maelstrom init json: {}",
-                            error
-                        );
+                        eprintln!("could not deserialize stdin as a Maelstrom json: {}", error);
                         continue;
                     }
-                }
-            } else {
-                match self.node.receive(&request) {
-                    Ok(vec) => vec.iter().map(|response |self.create_response(&request, response)).collect(),
-                    Err(_) => unimplemented!(),
+                };
+                eprintln!("received {:?}", &request);
+
+                tx.send(Event::Request(request));
+                buffer.clear();
+            }
+        });
+
+        for input in rx {
+            match input {
+                Event::Request(req) => self.handle_req(req),
+                Event::Trigger => self.handle_trigger(),
+            }
+        }
+        reader
+    }
+
+    fn handle_req(&mut self, request: Request) {
+        if request.message_type.as_str().eq("init") {
+            match self.handle_init(&request) {
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!(
+                        "could not deserialize stdin as a Maelstrom init json: {}",
+                        error
+                    );
                 }
             }
-
-            buffer.clear();
+        } else {
+            match self.node.receive(&request) {
+                Ok(vec) => vec
+                    .iter()
+                    .map(|response| self.create_response(response))
+                    .collect(),
+                Err(_) => unimplemented!(),
+            }
         }
     }
+    fn handle_trigger(&mut self) {
+        match self.node.gossip() {
+            Ok(vec) => vec
+                .iter()
+                .map(|response| self.create_response(response))
+                .collect(),
+            Err(_) => unimplemented!(),
+        }
+    }
+
     fn handle_init(&mut self, message: &Request) -> Result<(), serde_json::Error> {
         let node_id = match message.body.get("node_id") {
             Some(Value::String(s)) => s,
@@ -94,7 +129,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn create_response(&self, request: &Request, response: &Response) {
+    fn create_response(&self, response: &Response) {
         let mut body = Map::new();
         body.insert(
             String::from("type"),
@@ -110,19 +145,16 @@ impl Runtime {
         for (k, v) in response.body.iter() {
             body.insert(k.to_owned(), v.to_owned());
         }
-        self.send_response(request, &response.destination, body);
+        self.send_response(&response.source, &response.destination, body);
     }
 
     fn create_init_response(&self, request: &Request) {
-        self.create_response(request, &Response::new_from_request(request, Default::default()));
+        self.create_response(&Response::new_from_request(request, Default::default()));
     }
 
-    fn send_response(&self, request: &Request, destination: &str, body: Map<String, Value>) {
+    fn send_response(&self, source: &str, destination: &str, body: Map<String, Value>) {
         let mut reply = Map::new();
-        reply.insert(
-            String::from("src"),
-            Value::from(request.destination.clone()),
-        );
+        reply.insert(String::from("src"), Value::from(String::from(source)));
         reply.insert(String::from("dest"), Value::from(String::from(destination)));
         reply.insert(String::from("body"), Value::from(body));
         eprintln!("reply: {:?}", &reply);

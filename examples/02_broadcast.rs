@@ -1,7 +1,8 @@
+use std::sync::mpsc::Sender;
 use maelstrom_rs::actor::Actor;
 use maelstrom_rs::error::Error;
 use maelstrom_rs::message::{Request, Response};
-use maelstrom_rs::runtime::Runtime;
+use maelstrom_rs::runtime::{Event, Runtime};
 use serde_json::{Map, Value};
 
 // https://github.com/jepsen-io/maelstrom/blob/main/doc/03-broadcast/index.md
@@ -48,6 +49,7 @@ impl BroadcastActor {
                 let mut body = Map::new();
                 body.insert(String::from("message"), value.clone());
                 responses.push(Response {
+                    source: self.node_id.clone().expect("missin nodeid"),
                     destination: neighbor.to_owned(),
                     message_type: String::from("broadcast"),
                     message_id: None,
@@ -57,12 +59,10 @@ impl BroadcastActor {
             }
         }
 
-
         // Inter-server messages don't have a msg_id, and don't need a response
         if request.message_id.is_some() {
             responses.push(Response::new_from_request(request, Default::default()));
         }
-
 
         Ok(responses)
     }
@@ -86,7 +86,10 @@ impl BroadcastActor {
         };
         eprintln!("{:?} got {:?} as neighbors", self.node_id, self.neighbors);
 
-        Ok(vec![Response::new_from_request(request, Default::default())])
+        Ok(vec![Response::new_from_request(
+            request,
+            Default::default(),
+        )])
     }
 }
 
@@ -106,5 +109,13 @@ impl Actor for BroadcastActor {
             "read" => self.handle_read(message),
             _ => unimplemented!("unknown message {:?}", message),
         }
+    }
+
+    fn gossip(&mut self) -> Result<Vec<Response>, Error> {
+        unimplemented!()
+    }
+
+    fn inject_sender(&mut self, sender: Sender<Event>) {
+        unimplemented!()
     }
 }

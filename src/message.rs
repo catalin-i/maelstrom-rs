@@ -80,6 +80,8 @@ impl Request {
 /// A response to broadcast to Maelstrom
 #[derive(Debug, Clone)]
 pub struct Response {
+    /// Source
+    pub source: String,
     /// Destination
     pub destination: String,
     /// Type of the response
@@ -96,11 +98,12 @@ impl Response {
     /// Create a Response that will be a reply from a Request
     pub fn new_from_request(request: &Request, body: Map<String, Value>) -> Self {
         Response {
+            source: request.destination.to_owned(),
             destination: request.source.to_owned(),
             message_type: (request.message_type.to_owned() + "_ok"),
             message_id: request.message_id.map(|u64| u64 + 1),
             in_reply_to: request.message_id,
-            body
+            body,
         }
     }
 }
